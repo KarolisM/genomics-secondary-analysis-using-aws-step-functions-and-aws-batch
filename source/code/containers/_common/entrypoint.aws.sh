@@ -18,11 +18,11 @@
 #       Default: /opt/miniconda/bin
 #       Path to add to the PATH environment variable so that the AWS CLI can be
 #       located.  Use this if bindmounting the AWS CLI from the host and it is
-#       packaged in a self-contained way (e.g. not needing OS/distribution 
+#       packaged in a self-contained way (e.g. not needing OS/distribution
 #       specific shared libraries).  The AWS CLI installed with `conda` is
 #       sufficiently self-contained.  Using a standard python virtualenv does
 #       not work.
-# 
+#
 #   JOB_DATA_ISOLATION
 #       Optional
 #       Default: null
@@ -72,9 +72,9 @@ fi
 
 if [[ $JOB_DATA_ISOLATION && $JOB_DATA_ISOLATION == 1 ]]; then
     ## AWS Batch places multiple jobs on an instance
-    ## To avoid file path clobbering if using a host mounted scratch use the JobID 
+    ## To avoid file path clobbering if using a host mounted scratch use the JobID
     ## and JobAttempt to create a unique path
-    
+
     if [[ $AWS_BATCH_JOB_ID ]]; then
         GUID="$AWS_BATCH_JOB_ID/$AWS_BATCH_JOB_ATTEMPT"
     else
@@ -91,18 +91,19 @@ function stage_in() (
     #   s3://{prefix1}/{key_pattern1} [s3://{prefix2}/{key_pattern2} [...]]
     # uses the AWS CLI to download objects
 
-    # `noglob` option is needed so that patterns are not expanded against the 
+    # `noglob` option is needed so that patterns are not expanded against the
     # local filesystem. this setting is local to the function
     set -o noglob
 
     for item in "$@"; do
         item=`echo $item | envsubst`
+
         if [[ $item =~ ^s3:// ]]; then
             local item_key=`basename $item`
             local item_prefix=`dirname $item`
 
             echo "[input] remote: $item ==> ./$item_key"
-            
+
             aws s3 cp \
                 --no-progress \
                 --recursive \
@@ -123,9 +124,11 @@ function stage_out() (
     # uses the AWS CLI to upload objects
 
     for item in "$@"; do
+        item=`echo $item | envsubst`
+
         if [ ! -f $item ]; then
             # If an expected output is not found it is generally considered an
-            # error.  To suppress this error when using glob expansion you can 
+            # error.  To suppress this error when using glob expansion you can
             # set the `nullglob` option (`shopt -s nullglob`)
             echo "[output] ERROR: $item does not exist" 1>&2
             exit 1
@@ -170,4 +173,3 @@ bash -c "$COMMAND"
 
 
 stage_out $JOB_OUTPUTS
-

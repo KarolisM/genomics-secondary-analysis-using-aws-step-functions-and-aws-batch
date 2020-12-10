@@ -7,7 +7,7 @@ Parameters:
 
   InputDataPrefix:
     Type: String
-  
+
   OutputDataPrefix:
     Type: String
 
@@ -17,10 +17,10 @@ Parameters:
     Type: String
   BatchJobDefinitionBcftools:
     Type: String
-  
+
   BatchJobQueue:
     Type: String
-  
+
   StatesExecutionRoleArn:
     Type: String
 
@@ -41,7 +41,7 @@ Resources:
                     "Parameters": {
                         "workflow": {
                             "name.$": "$$.StateMachine.Name",
-                            "execution.$": "$$.Execution.Name" 
+                            "execution.$": "$$.Execution.Name"
                         },
                         "params.$": "$.params",
                         "jobdefs": {
@@ -50,168 +50,187 @@ Resources:
                             "bcftools": "${BatchJobDefinitionBcftools}"
                         }
                     },
-                    "Next": "BwaMem"
+                    "Next": "Iterate-Over-Samples"
                 },
-                "BwaMem": {
-                    "Type": "Task",
-                    "InputPath": "$",
-                    "ResultPath": "$.result",
-                    "Resource": "arn:aws:states:::batch:submitJob.sync",
-                    "Parameters": {
-                        "JobName": "bwa-mem",
-                        "JobDefinition.$": "$.jobdefs.bwa",
-                        "JobQueue.$": "$.params.queue",
-                        "ContainerOverrides": {
-                            "Vcpus": 8,
-                            "Memory": 8000,
-                            "Environment": [
-                                {"Name": "JOB_WORKFLOW_NAME", "Value.$": "$.workflow.name"},
-                                {"Name": "JOB_WORKFLOW_EXECUTION_ID", "Value.$": "$.workflow.execution"},
-                                {"Name": "JOB_INPUTS", "Value": "s3://broad-references/hg38/v0/Homo_sapiens_assembly38.fasta* ${!SOURCE_DATA_PREFIX}/${!SAMPLE_ID}*"},
-                                {"Name": "JOB_OUTPUTS", "Value": "*.sam"},
-                                {"Name": "JOB_OUTPUT_PREFIX", "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"},
-                                {"Name": "JOB_AWS_CLI_PATH", "Value.$": "$.params.environment.JOB_AWS_CLI_PATH"},
-                                {"Name": "SOURCE_DATA_PREFIX", "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"},
-                                {"Name": "SAMPLE_ID", "Value.$": "$.params.environment.SAMPLE_ID"},
-                                {"Name": "REFERENCE_NAME", "Value.$": "$.params.environment.REFERENCE_NAME"}
-                            ],
-                            "Command": [
-                                "bwa mem -t 8 -p -o ${!SAMPLE_ID}.sam ${!REFERENCE_NAME}.fasta ${!SAMPLE_ID}_*1*.fastq.gz"
-                            ]
-                        }
-                    },
-                    "Next": "SamtoolsSort"
-                },
-                "SamtoolsSort": {
-                    "Type": "Task",
-                    "InputPath": "$",
-                    "ResultPath": "$.result",
-                    "Resource": "arn:aws:states:::batch:submitJob.sync",
-                    "Parameters": {
-                        "JobName": "samtools-sort",
-                        "JobDefinition.$": "$.jobdefs.samtools",
-                        "JobQueue.$": "$.params.queue",
-                        "ContainerOverrides": {
-                            "Vcpus": 4,
-                            "Memory": 8000,
-                            "Environment": [
-                                {"Name": "JOB_WORKFLOW_NAME", "Value.$": "$.workflow.name"},
-                                {"Name": "JOB_WORKFLOW_EXECUTION_ID", "Value.$": "$.workflow.execution"},
-                                {"Name": "JOB_INPUT_PREFIX", "Value": "${!JOB_OUTPUT_PREFIX}/${!JOB_WORKFLOW_NAME}/${!JOB_WORKFLOW_EXECUTION_ID}"},
-                                {"Name": "JOB_INPUTS", "Value": "${!JOB_INPUT_PREFIX}/*.sam"},
-                                {"Name": "JOB_OUTPUTS", "Value": "*.bam"},
-                                {"Name": "JOB_OUTPUT_PREFIX", "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"},
-                                {"Name": "JOB_AWS_CLI_PATH", "Value.$": "$.params.environment.JOB_AWS_CLI_PATH"},
-                                {"Name": "SAMPLE_ID", "Value.$": "$.params.environment.SAMPLE_ID"}
-                            ],
-                            "Command": [
-                                "samtools sort -@ 4 -o ${!SAMPLE_ID}.bam ${!SAMPLE_ID}.sam"
-                            ]
-                        }
-                    },
-                    "Next": "SamtoolsIndex"
-                },
-                "SamtoolsIndex": {
-                    "Type": "Task",
-                    "InputPath": "$",
-                    "ResultPath": "$.result",
-                    "Resource": "arn:aws:states:::batch:submitJob.sync",
-                    "Parameters": {
-                        "JobName": "samtools-index",
-                        "JobDefinition.$": "$.jobdefs.samtools",
-                        "JobQueue.$": "$.params.queue",
-                        "ContainerOverrides": {
-                            "Vcpus": 1,
-                            "Memory": 1024,
-                            "Environment": [
-                                {"Name": "JOB_WORKFLOW_NAME", "Value.$": "$.workflow.name"},
-                                {"Name": "JOB_WORKFLOW_EXECUTION_ID", "Value.$": "$.workflow.execution"},
-                                {"Name": "JOB_INPUT_PREFIX", "Value": "${!JOB_OUTPUT_PREFIX}/${!JOB_WORKFLOW_NAME}/${!JOB_WORKFLOW_EXECUTION_ID}"},
-                                {"Name": "JOB_INPUTS", "Value": "${!JOB_INPUT_PREFIX}/*.bam"},
-                                {"Name": "JOB_OUTPUTS", "Value": "*.bam*"},
-                                {"Name": "JOB_OUTPUT_PREFIX", "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"},
-                                {"Name": "JOB_AWS_CLI_PATH", "Value.$": "$.params.environment.JOB_AWS_CLI_PATH"},
-                                {"Name": "SAMPLE_ID", "Value.$": "$.params.environment.SAMPLE_ID"}
-                            ],
-                            "Command": [
-                                "samtools index ${!SAMPLE_ID}.bam"
-                            ]
-                        }
-                    },
-                    "Next": "CallVariantsByChromosome"
-                },
-                "CallVariantsByChromosome" : {
+                "Iterate-Over-Samples": {
                     "Type": "Map",
                     "InputPath": "$",
-                    "ItemsPath": "$.params.chromosomes",
+                    "ItemsPath": "$.params.environment.SAMPLES",
                     "MaxConcurrency": 23,
-                    "ResultPath": "$.results.variant_calls",
                     "Parameters": {
                         "workflow.$": "$.workflow",
                         "params.$": "$.params",
-                        "chromosome.$": "$$.Map.Item.Value",
+                        "sample.$": "$$.Map.Item.Value",
                         "jobdefs.$": "$.jobdefs"
                     },
                     "Iterator": {
-                        "StartAt": "BcftoolsMPileup",
+                        "StartAt": "BwaMem",
                         "States": {
-                            "BcftoolsMPileup": {
+                            "BwaMem": {
                                 "Type": "Task",
                                 "InputPath": "$",
                                 "ResultPath": "$.result",
                                 "Resource": "arn:aws:states:::batch:submitJob.sync",
                                 "Parameters": {
-                                    "JobName": "bcftools-mpileup",
-                                    "JobDefinition.$": "$.jobdefs.bcftools",
+                                    "JobName": "bwa-mem",
+                                    "JobDefinition.$": "$.jobdefs.bwa",
                                     "JobQueue.$": "$.params.queue",
                                     "ContainerOverrides": {
-                                        "Vcpus": 4,
-                                        "Memory": 4096,
+                                        "Vcpus": 8,
+                                        "Memory": 8000,
                                         "Environment": [
                                             {"Name": "JOB_WORKFLOW_NAME", "Value.$": "$.workflow.name"},
+                                            {"Name": "SAMPLE_ID", "Value.$": "$.sample"},
                                             {"Name": "JOB_WORKFLOW_EXECUTION_ID", "Value.$": "$.workflow.execution"},
-                                            {"Name": "JOB_INPUT_PREFIX", "Value": "${!JOB_OUTPUT_PREFIX}/${!JOB_WORKFLOW_NAME}/${!JOB_WORKFLOW_EXECUTION_ID}"},
-                                            {"Name": "JOB_INPUTS", "Value": "s3://broad-references/hg38/v0/Homo_sapiens_assembly38.fasta* ${!JOB_INPUT_PREFIX}/*.bam*"},
-                                            {"Name": "JOB_OUTPUTS", "Value": "*.mpileup.gz"},
+                                            {"Name": "JOB_INPUTS", "Value": "s3://broad-references/hg38/v0/Homo_sapiens_assembly38.fasta* ${!SOURCE_DATA_PREFIX}/${!SAMPLE_ID}*"},
+                                            {"Name": "JOB_OUTPUTS", "Value": "${!SAMPLE_ID}.sam"},
                                             {"Name": "JOB_OUTPUT_PREFIX", "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"},
                                             {"Name": "JOB_AWS_CLI_PATH", "Value.$": "$.params.environment.JOB_AWS_CLI_PATH"},
-                                            {"Name": "SAMPLE_ID", "Value.$": "$.params.environment.SAMPLE_ID"},
-                                            {"Name": "REFERENCE_NAME", "Value.$": "$.params.environment.REFERENCE_NAME"},
-                                            {"Name": "CHROMOSOME", "Value.$": "$.chromosome"}
+                                            {"Name": "SOURCE_DATA_PREFIX", "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"},
+                                            {"Name": "REFERENCE_NAME", "Value.$": "$.params.environment.REFERENCE_NAME"}
                                         ],
                                         "Command": [
-                                            "bcftools mpileup --threads 4 -r ${!CHROMOSOME} -Oz -f ${!REFERENCE_NAME}.fasta -o ${!SAMPLE_ID}.${!CHROMOSOME}.mpileup.gz ${!SAMPLE_ID}.bam"
+                                            "bwa mem -t 8 -p -o ${!SAMPLE_ID}.sam ${!REFERENCE_NAME}.fasta ${!SAMPLE_ID}_*1*.fastq.gz"
                                         ]
                                     }
                                 },
-                                "Next": "BcftoolsCall"
+                                "Next": "SamtoolsSort"
                             },
-                            "BcftoolsCall": {
+                            "SamtoolsSort": {
                                 "Type": "Task",
                                 "InputPath": "$",
                                 "ResultPath": "$.result",
                                 "Resource": "arn:aws:states:::batch:submitJob.sync",
                                 "Parameters": {
-                                    "JobName": "bcftools-call",
-                                    "JobDefinition.$": "$.jobdefs.bcftools",
+                                    "JobName": "samtools-sort",
+                                    "JobDefinition.$": "$.jobdefs.samtools",
                                     "JobQueue.$": "$.params.queue",
                                     "ContainerOverrides": {
-                                        "Vcpus": 2,
-                                        "Memory": 1024,
+                                        "Vcpus": 4,
+                                        "Memory": 8000,
                                         "Environment": [
+                                            {"Name": "SAMPLE_ID", "Value.$": "$.sample"},
                                             {"Name": "JOB_WORKFLOW_NAME", "Value.$": "$.workflow.name"},
                                             {"Name": "JOB_WORKFLOW_EXECUTION_ID", "Value.$": "$.workflow.execution"},
                                             {"Name": "JOB_INPUT_PREFIX", "Value": "${!JOB_OUTPUT_PREFIX}/${!JOB_WORKFLOW_NAME}/${!JOB_WORKFLOW_EXECUTION_ID}"},
-                                            {"Name": "JOB_INPUTS", "Value": "${!JOB_INPUT_PREFIX}/*.${!CHROMOSOME}.mpileup.gz"},
-                                            {"Name": "JOB_OUTPUTS", "Value": "*.vcf.gz"},
+                                            {"Name": "JOB_INPUTS", "Value": "${!JOB_INPUT_PREFIX}/${!SAMPLE_ID}.sam"},
+                                            {"Name": "JOB_OUTPUTS", "Value": "${!SAMPLE_ID}.bam"},
                                             {"Name": "JOB_OUTPUT_PREFIX", "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"},
-                                            {"Name": "JOB_AWS_CLI_PATH", "Value.$": "$.params.environment.JOB_AWS_CLI_PATH"},
-                                            {"Name": "SAMPLE_ID", "Value.$": "$.params.environment.SAMPLE_ID"},
-                                            {"Name": "CHROMOSOME", "Value.$": "$.chromosome"}
+                                            {"Name": "JOB_AWS_CLI_PATH", "Value.$": "$.params.environment.JOB_AWS_CLI_PATH"}
                                         ],
                                         "Command": [
-                                            "bcftools call -m --threads 2 -t ${!CHROMOSOME} -Oz -o ${!SAMPLE_ID}.${!CHROMOSOME}.vcf.gz ${!SAMPLE_ID}.${!CHROMOSOME}.mpileup.gz"
+                                            "samtools sort -@ 4 -o ${!SAMPLE_ID}.bam ${!SAMPLE_ID}.sam"
                                         ]
+                                    }
+                                },
+                                "Next": "SamtoolsIndex"
+                            },
+                            "SamtoolsIndex": {
+                                "Type": "Task",
+                                "InputPath": "$",
+                                "ResultPath": "$.result",
+                                "Resource": "arn:aws:states:::batch:submitJob.sync",
+                                "Parameters": {
+                                    "JobName": "samtools-index",
+                                    "JobDefinition.$": "$.jobdefs.samtools",
+                                    "JobQueue.$": "$.params.queue",
+                                    "ContainerOverrides": {
+                                        "Vcpus": 1,
+                                        "Memory": 1024,
+                                        "Environment": [
+                                            {"Name": "SAMPLE_ID", "Value.$": "$.sample"},
+                                            {"Name": "JOB_WORKFLOW_NAME", "Value.$": "$.workflow.name"},
+                                            {"Name": "JOB_WORKFLOW_EXECUTION_ID", "Value.$": "$.workflow.execution"},
+                                            {"Name": "JOB_INPUT_PREFIX", "Value": "${!JOB_OUTPUT_PREFIX}/${!JOB_WORKFLOW_NAME}/${!JOB_WORKFLOW_EXECUTION_ID}"},
+                                            {"Name": "JOB_INPUTS", "Value": "${!JOB_INPUT_PREFIX}/${!SAMPLE_ID}.bam"},
+                                            {"Name": "JOB_OUTPUTS", "Value": "${!SAMPLE_ID}.bam.bai"},
+                                            {"Name": "JOB_OUTPUT_PREFIX", "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"},
+                                            {"Name": "JOB_AWS_CLI_PATH", "Value.$": "$.params.environment.JOB_AWS_CLI_PATH"}
+                                        ],
+                                        "Command": [
+                                            "samtools index ${!SAMPLE_ID}.bam"
+                                        ]
+                                    }
+                                },
+                                "Next": "CallVariantsByChromosome"
+                            },
+                            "CallVariantsByChromosome" : {
+                                "Type": "Map",
+                                "InputPath": "$",
+                                "ItemsPath": "$.params.chromosomes",
+                                "MaxConcurrency": 23,
+                                "ResultPath": "$.results.variant_calls",
+                                "Parameters": {
+                                    "workflow.$": "$.workflow",
+                                    "params.$": "$.params",
+                                    "sample.$": "$.sample",
+                                    "chromosome.$": "$$.Map.Item.Value",
+                                    "jobdefs.$": "$.jobdefs"
+                                },
+                                "Iterator": {
+                                    "StartAt": "BcftoolsMPileup",
+                                    "States": {
+                                        "BcftoolsMPileup": {
+                                            "Type": "Task",
+                                            "InputPath": "$",
+                                            "ResultPath": "$.result",
+                                            "Resource": "arn:aws:states:::batch:submitJob.sync",
+                                            "Parameters": {
+                                                "JobName": "bcftools-mpileup",
+                                                "JobDefinition.$": "$.jobdefs.bcftools",
+                                                "JobQueue.$": "$.params.queue",
+                                                "ContainerOverrides": {
+                                                    "Vcpus": 4,
+                                                    "Memory": 4096,
+                                                    "Environment": [
+                                                        {"Name": "SAMPLE_ID", "Value.$": "$.sample"},
+                                                        {"Name": "JOB_WORKFLOW_NAME", "Value.$": "$.workflow.name"},
+                                                        {"Name": "JOB_WORKFLOW_EXECUTION_ID", "Value.$": "$.workflow.execution"},
+                                                        {"Name": "JOB_INPUT_PREFIX", "Value": "${!JOB_OUTPUT_PREFIX}/${!JOB_WORKFLOW_NAME}/${!JOB_WORKFLOW_EXECUTION_ID}"},
+                                                        {"Name": "JOB_INPUTS", "Value": "s3://broad-references/hg38/v0/Homo_sapiens_assembly38.fasta* ${!JOB_INPUT_PREFIX}/${!SAMPLE_ID}.bam*"},
+                                                        {"Name": "JOB_OUTPUTS", "Value": "${!SAMPLE_ID}.${!CHROMOSOME}.mpileup.gz"},
+                                                        {"Name": "JOB_OUTPUT_PREFIX", "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"},
+                                                        {"Name": "JOB_AWS_CLI_PATH", "Value.$": "$.params.environment.JOB_AWS_CLI_PATH"},
+                                                        {"Name": "REFERENCE_NAME", "Value.$": "$.params.environment.REFERENCE_NAME"},
+                                                        {"Name": "CHROMOSOME", "Value.$": "$.chromosome"}
+                                                    ],
+                                                    "Command": [
+                                                        "bcftools mpileup --threads 4 -r ${!CHROMOSOME} -Oz -f ${!REFERENCE_NAME}.fasta -o ${!SAMPLE_ID}.${!CHROMOSOME}.mpileup.gz ${!SAMPLE_ID}.bam"
+                                                    ]
+                                                }
+                                            },
+                                            "Next": "BcftoolsCall"
+                                        },
+                                        "BcftoolsCall": {
+                                            "Type": "Task",
+                                            "InputPath": "$",
+                                            "ResultPath": "$.result",
+                                            "Resource": "arn:aws:states:::batch:submitJob.sync",
+                                            "Parameters": {
+                                                "JobName": "bcftools-call",
+                                                "JobDefinition.$": "$.jobdefs.bcftools",
+                                                "JobQueue.$": "$.params.queue",
+                                                "ContainerOverrides": {
+                                                    "Vcpus": 2,
+                                                    "Memory": 1024,
+                                                    "Environment": [
+                                                        {"Name": "SAMPLE_ID", "Value.$": "$.sample"},
+                                                        {"Name": "JOB_WORKFLOW_NAME", "Value.$": "$.workflow.name"},
+                                                        {"Name": "JOB_WORKFLOW_EXECUTION_ID", "Value.$": "$.workflow.execution"},
+                                                        {"Name": "JOB_INPUT_PREFIX", "Value": "${!JOB_OUTPUT_PREFIX}/${!JOB_WORKFLOW_NAME}/${!JOB_WORKFLOW_EXECUTION_ID}"},
+                                                        {"Name": "JOB_INPUTS", "Value": "${!JOB_INPUT_PREFIX}/${!SAMPLE_ID}.${!CHROMOSOME}.mpileup.gz"},
+                                                        {"Name": "JOB_OUTPUTS", "Value": "${!SAMPLE_ID}.${!CHROMOSOME}.vcf.gz"},
+                                                        {"Name": "JOB_OUTPUT_PREFIX", "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"},
+                                                        {"Name": "JOB_AWS_CLI_PATH", "Value.$": "$.params.environment.JOB_AWS_CLI_PATH"},
+                                                        {"Name": "CHROMOSOME", "Value.$": "$.chromosome"}
+                                                    ],
+                                                    "Command": [
+                                                        "bcftools call -m --threads 2 -t ${!CHROMOSOME} -Oz -o ${!SAMPLE_ID}.${!CHROMOSOME}.vcf.gz ${!SAMPLE_ID}.${!CHROMOSOME}.mpileup.gz"
+                                                    ]
+                                                }
+                                            },
+                                            "End": true
+                                        }
                                     }
                                 },
                                 "End": true
@@ -238,7 +257,9 @@ Outputs:
               "queue": "${BatchJobQueue}",
               "environment": {
                   "REFERENCE_NAME": "Homo_sapiens_assembly38",
-                  "SAMPLE_ID": "NIST7035",
+                  "SAMPLES": [
+                    "NIST7035",
+                    ],
                   "SOURCE_DATA_PREFIX": "${InputDataPrefix}",
                   "JOB_OUTPUT_PREFIX": "${OutputDataPrefix}",
                   "JOB_AWS_CLI_PATH": "/opt/miniconda/bin"

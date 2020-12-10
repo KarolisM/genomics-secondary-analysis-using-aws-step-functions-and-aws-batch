@@ -13,7 +13,7 @@ Parameters:
     Description: Lowercase prefix used in resources
     Type: String
     Default: genomicsworkflow
-  
+
   BatchServiceRoleArn:
     Description: IAM role used by AWS Batch to launch resources on your behalf
     Type: String
@@ -23,14 +23,14 @@ Parameters:
   SpotFleetRoleArn:
     Description: IAM role used by AWS Batch to make Spot instance requests
     Type: String
-  
+
   SubnetIds:
     Description: List of SubnetIds for AWS Batch to launch instances into
     Type: List<AWS::EC2::Subnet::Id>
   SecurityGroupIds:
     Description: Security groups used by AWS Batch launched instances
     Type: List<AWS::EC2::SecurityGroup::Id>
-  
+
   ZoneStackName:
     Description: Cloudformation StackName for project zone
     Type: String
@@ -51,21 +51,21 @@ Resources:
               Encrypted: True
               DeleteOnTermination: True
               VolumeSize: 50
-              VolumeType: gp2 
+              VolumeType: gp2
             DeviceName: /dev/xvda
           - Ebs:
               # ecs optimized ami docker storage volume, kept for compatibility
               Encrypted: True
               DeleteOnTermination: True
               VolumeSize: 22
-              VolumeType: gp2 
+              VolumeType: gp2
             DeviceName: /dev/xvdcz
           - Ebs:
               # docker storage volume (amazon-ebs-autoscale managed)
               Encrypted: True
               DeleteOnTermination: True
               VolumeSize: 100
-              VolumeType: gp2 
+              VolumeType: gp2
             DeviceName: /dev/sdc
         TagSpecifications:
           - ResourceType: volume
@@ -108,7 +108,8 @@ Resources:
             - sh /opt/amazon-ebs-autoscale/install.sh /var/lib/docker /dev/sdc 2>&1 > /var/log/ebs-autoscale-install.log
             - sed -i 's+OPTIONS=.*+OPTIONS="--storage-driver btrfs"+g' /etc/sysconfig/docker-storage
             - cp -au /var/lib/docker.bk/* /var/lib/docker
-            
+            - echo ECS_DISABLE_IMAGE_CLEANUP=true >> /etc/ecs/ecs.config
+
             # install miniconda/awscli
             - wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh
             - bash Miniconda3-latest-Linux-x86_64.sh -b -f -p /opt/miniconda
